@@ -5,6 +5,7 @@ import requests
 import threading
 import websocket
 import json
+from flask import Flask, request, render_template_string
 from requests.auth import HTTPBasicAuth
 
 # === Load config from properties file ===
@@ -26,10 +27,10 @@ SIGNALK_SERVER = config.get('signalk_url', 'localhost:3000').replace('http://', 
 USERNAME = config.get('signalk_username', '')
 PASSWORD = config.get('signalk_password', '')
 
-SHUTDOWN_PATH = "vessels.self.system.shutdown"
-
 token = ""
 ws = None
+
+app = Flask(__name__)
 
 # === Authenticate to Signal K ===
 def authenticate_signal_k():
@@ -45,6 +46,7 @@ def authenticate_signal_k():
     except Exception as e:
         print(f"Authentication failed: {e}")
         exit(1)
+
 
 # === Send value to Signal K over WebSocket ===
 def send_to_signalk(path, value):
@@ -69,7 +71,7 @@ def send_to_signalk(path, value):
         print(f"Sent to Signal K: {path} = {value} \n {data}")
     except Exception as e:
         print(f"WebSocket send error: {e}")
-
+        
 # === WebSocket connection ===
 def connect_websocket():
     global ws
@@ -91,25 +93,6 @@ def connect_websocket():
                                  on_error=on_error)
     threading.Thread(target=ws.run_forever, daemon=True).start()
 
-# === Poll shutdown trigger from Signal K ===
-def poll_for_shutdown():
-    url = f"http://{SIGNALK_SERVER}/signalk/v1/api/vessels/self/{SHUTDOWN_PATH.replace('.', '/')}"
-    headers = {"Authorization": f"Bearer {token}"}
-
-    while True:
-        try:
-            response = requests.get(url, headers=headers)
-            if response.status_code == 200:
-                value = response.json().get('value', 0)
-                print(f"Shutdown path value: {value}")
-                if value is 1:
-                    print("Shutdown confirmed via Signal K. Shutting down now.")
-                    # os.system("sudo shutdown -h now")
-                    return
-        except Exception as e:
-            print(f"Polling error: {e}")
-        time.sleep(1)
-
 # === Get LTE signal strength via mmcli ===
 def get_lte_signal_strength():
     try:
@@ -123,9 +106,6 @@ def get_lte_signal_strength():
 
 # === System monitoring function ===
 def monitor_and_send():
-
-    time.sleep(3)
-    send_to_signalk(SHUTDOWN_PATH, False)
 
     while True:
         try:
@@ -159,15 +139,33 @@ def monitor_and_send():
 
         time.sleep(10)
 
+# === Flask HTML UI ===
+@app.route("/")
+def index():
+    return render_template_string("""
+        <!DOCTYPE html>
+        <html>
+        <head></head>
+        <body>
+           
+            <form action="/trigger_shutdown" method="post">
+                <button type="submit" style="height:80px">Shutdown PC</button>
+            </form>
+        </body>
+        </html>
+    """)
+
+@app.route("/trigger_shutdown", methods=["POST"])
+def trigger_shutdown():
+    print("SHUTDOWN")
+    os.system("sudo shutdown -h now")
+    return "Shutdown Triggered via Signal K"
+
 # === Main entry point ===
 if __name__ == "__main__":
     authenticate_signal_k()
     connect_websocket()
 
-    
-    # Start background thread to monitor shutdown command
-    threading.Thread(target=poll_for_shutdown, daemon=True).start()
+    threading.Thread(target=monitor_and_send, daemon=True).start()
 
-    monitor_and_send()
-
-    
+    app.run(host='0.0.0.0', port=8080)
