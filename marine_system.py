@@ -5,7 +5,6 @@ import requests
 import threading
 import websocket
 import json
-from flask import Flask, request
 from requests.auth import HTTPBasicAuth
 
 # === Load config from properties file ===
@@ -27,19 +26,10 @@ SIGNALK_SERVER = config.get('signalk_url', 'localhost:3000').replace('http://', 
 USERNAME = config.get('signalk_username', '')
 PASSWORD = config.get('signalk_password', '')
 
+SHUTDOWN_PATH = "vessels.self.system.shutdown"
+
 token = ""
 ws = None
-
-# === Flask app for shutdown ===
-app = Flask(__name__)
-
-@app.route('/shutdown', methods=['POST'])
-def shutdown():
-    os.system("sudo shutdown -h now")
-    return "Shutting down Raspberry Pi", 200
-
-def run_flask():
-    app.run(host='0.0.0.0', port=5001)
 
 # === Authenticate to Signal K ===
 def authenticate_signal_k():
@@ -76,7 +66,7 @@ def send_to_signalk(path, value):
     }
     try:
         ws.send(json.dumps(data))
-        print(f"Sent to Signal K: {path} = {value}")
+        print(f"Sent to Signal K: {path} = {value} \n {data}")
     except Exception as e:
         print(f"WebSocket send error: {e}")
 
@@ -101,6 +91,25 @@ def connect_websocket():
                                  on_error=on_error)
     threading.Thread(target=ws.run_forever, daemon=True).start()
 
+# === Poll shutdown trigger from Signal K ===
+def poll_for_shutdown():
+    url = f"http://{SIGNALK_SERVER}/signalk/v1/api/vessels/self/{SHUTDOWN_PATH.replace('.', '/')}"
+    headers = {"Authorization": f"Bearer {token}"}
+
+    while True:
+        try:
+            response = requests.get(url, headers=headers)
+            if response.status_code == 200:
+                value = response.json().get('value', 0)
+                print(f"Shutdown path value: {value}")
+                if value is 1:
+                    print("Shutdown confirmed via Signal K. Shutting down now.")
+                    # os.system("sudo shutdown -h now")
+                    return
+        except Exception as e:
+            print(f"Polling error: {e}")
+        time.sleep(1)
+
 # === Get LTE signal strength via mmcli ===
 def get_lte_signal_strength():
     try:
@@ -114,6 +123,10 @@ def get_lte_signal_strength():
 
 # === System monitoring function ===
 def monitor_and_send():
+
+    time.sleep(3)
+    send_to_signalk(SHUTDOWN_PATH, False)
+
     while True:
         try:
             cpu_temp_output = os.popen("vcgencmd measure_temp").readline()
@@ -151,8 +164,10 @@ if __name__ == "__main__":
     authenticate_signal_k()
     connect_websocket()
 
-    flask_thread = threading.Thread(target=run_flask)
-    flask_thread.daemon = True
-    flask_thread.start()
+    
+    # Start background thread to monitor shutdown command
+    threading.Thread(target=poll_for_shutdown, daemon=True).start()
 
     monitor_and_send()
+
+    
