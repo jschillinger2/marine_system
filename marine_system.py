@@ -143,16 +143,57 @@ def monitor_and_send():
 @app.route("/")
 def index():
     return render_template_string("""
+
+   
+
         <!DOCTYPE html>
         <html>
-        <head></head>
+        <head>
+            <title>Shutdown Control</title>
+            <style>
+                body {
+                    background-color: #121212;
+                    color: #ffffff;
+                    font-family: Arial, sans-serif;
+                    display: flex;
+                    flex-direction: column;
+                    align-items: center;
+                    justify-content: center;
+                    height: 100vh;
+                    margin: 0;
+                }
+                h1 {
+                    margin-bottom: 2em;
+                }
+                button {
+                    background-color: #2196F3;
+                    color: white;
+                    border: none;
+                    padding: 1em 2em;
+                    font-size: 1.2em;
+                    border-radius: 8px;
+                    cursor: pointer;
+                    transition: background-color 0.3s;
+                }
+                button:hover {
+                    background-color: #1976D2;
+                }
+            </style>
+            <script>
+                function confirmShutdown() {
+                    if (confirm("Are you sure you want to shut down?")) {
+                        document.getElementById('shutdownForm').submit();
+                    }
+                }
+            </script>
+        </head>
         <body>
-           
-            <form action="/trigger_shutdown" method="post">
-                <button type="submit" style="height:80px">Shutdown PC</button>
+            <form id="shutdownForm" action="/trigger_shutdown" method="post">
+                <button type="button" onclick="confirmShutdown()">Trigger Shutdown</button>
             </form>
         </body>
         </html>
+    
     """)
 
 @app.route("/trigger_shutdown", methods=["POST"])
